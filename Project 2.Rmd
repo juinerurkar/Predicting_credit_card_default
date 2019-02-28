@@ -1,0 +1,419 @@
+---
+title: "Project_2"
+author: "Nerurkar Jui"
+date: "1/30/2019"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+Introduction:
+
+Credit card data is quite insightful and provides a considerable amount of information about the consumers, which can help in preventing crimes against consumers as well as merchants. However, in addition to the losses suffered by consumers and merchants, banks have to suffer the highest amount of losses due to the credit card frauds and defaulters. 
+Hence, it is very crucial to develop a method to solve this pressing problem by predicting fraudulent behavior or default in payment using the records from past transactions.
+
+Data:
+
+This dataset (downloaded from the UCI Machine Learning Repository) contains information on default payments, demographic factors, payment history, and bill statements from April 2005 to September 2005 of credit card holders in Taiwan. This dataset uses 23 variables as explanatory variables/predictors, out of which 9 are categorical and the remaining are numerical.
+
+It is an imbalanced dataset with only 6636 observations belonging to default payment = 1 category, i.e only 22% of the data.
+
+The data description given by the UCI website is as follows:
+A binary variable, default payment is the response variable where Default = 1 and No Default = 0. 
+Amount of the given credit (in NT dollar) includes both the individual consumer credit and his/her family (supplementary) credit. 
+Gender: 1 = male; 2 = female.
+Education: 1 = graduate school; 2 = university; 3 = high school; 4 = others.
+Marital status: 1 = married; 2 = single; 3 = others.
+Age: Age in years.
+History of past payments:  
+PAY_0: the repayment status in September, 2005; 
+PAY_2 = the repayment status in August, 2005; …
+PAY_6 = the repayment status in April, 2005. 
+The measurement scale for the repayment status is: 
+-1 = pay duly; 
+1 = payment delay for one month; 
+2 = payment delay for two months; . . .; 
+8 = payment delay for eight months; 
+9 = payment delay for nine months and above.
+Amount of bill statement (NT dollar):
+BILL_AMT1 = amount of bill statement in September, 2005; 
+BILL_AMT2 = amount of bill statement in August, 2005; . . .; 
+BILL_AMT6= amount of bill statement in April, 2005.
+Amount of previous payment (NT dollar): 
+PAY_AMT1 = amount paid in September, 2005; 
+PAY_AMT2 = amount paid in August, 2005; . . .;
+PAY_AMT6 = amount paid in April, 2005. 
+
+It is important to note that the dataset does not provide enough information about the response variable i.e what conditions need to be satisfied to say that a credit card holder has defaulted in making the credit card bill payments? On moneycontrol.com, default is defined as When payments are not made in time and according to the agreement signed by the card holder, the account is said to be in default.
+For the purposes of this analysis, I have assumed that every payment which is not made within 2 months is default.
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(caret)
+library(lattice)
+library(cluster) 
+library(NbClust) 
+library(klaR)
+library(ggplot2) 
+library(GGally) 
+library(e1071) 
+library(knitr)
+library(rgl)
+library(NeuralNetTools)
+library(corrgram)
+library(pROC)
+```
+
+Analysis:
+
+Checking the data for missing values:
+The repayment status columns have 0 and -2 values which are undocumented and hence, can be treated as missing values. Upon analyzing the data to understand the allocation of 0 and -2 to the repayment status, I realized that it was quite arbitrary. However, there are 25,939 observations with repayment status values of 0 and -2 and hence, removing them would be a signification loss of data and information. 
+
+
+Transforming the data: 
+Deleted the first row which was the ID column.
+All repayment status values in the dataset - credit less than 3 were replaced with 0 (non-defaulters since payment made duly) and more than or equal to 3 were replaced with 1. Thereafter, I calculated the total number of defaults for every observation.
+Plotted the histograms for the numerical variables. Except limit balance and age, all the other numerical variables are heavily skewed and hence, I used the log transformations on those variables. However, those variables have negative values. Since, log of negative values do not exist and need a much more detailed evaluation, I restricted the said variables only to positive values. Finally, I had a dataset of 15,049 observations with 2106 observations, i.e approximately 14% belonging to the default payment = 1 category. 
+After the log transformations, I checked the numeric range of the different features which varies quite substantially. Hence, I normalized the numerical variables in the given dataset.
+The dataset obtained after these transformations shall be referred to as the transformed dataset- credit.
+
+```{r}
+
+credit <- read.csv("Credit_Card_default.csv")
+credit <- credit[,-1]
+
+undocumented <- credit %>% filter(PAY_0 == c(-2,0)| PAY_2 == c(-2,0)| PAY_3 == c(-2,0) | PAY_4 == c(-2,0) | PAY_5 == c(-2,0) | PAY_6 == c(-2,0))
+
+##Calculate Total Number of defaults for every observation
+credit <- credit %>% mutate(PAY_0 = ifelse(PAY_0 < 3, 0, 1))
+credit <- credit %>% mutate(PAY_2 = ifelse(PAY_2 < 3, 0, 1))
+credit <- credit %>% mutate(PAY_3 = ifelse(PAY_3 < 3, 0, 1))
+credit <- credit %>% mutate(PAY_4 = ifelse(PAY_4 < 3, 0, 1))
+credit <- credit %>% mutate(PAY_5 = ifelse(PAY_5 < 3, 0, 1))
+credit <- credit %>% mutate(PAY_6 = ifelse(PAY_6 < 3, 0, 1))
+for (i in 1:nrow(credit)){
+  credit$Number_of_defaults[i] <- (credit$PAY_0[i] + credit$PAY_2[i] + credit$PAY_3[i] + credit$PAY_4[i] + credit$PAY_5[i] + credit$PAY_6[i])}
+
+#Univariate plots for variables
+hist(credit$LIMIT_BAL, main = "Histogram - Limit Balance")
+hist(credit$AGE, main = "Histogram - Age")
+for(i in 12:23){
+  hist(credit[,i], main = "Histogram", xlab= paste0("credit",i))
+}
+
+#Restrict bill and payment amounts to positive values
+for (i in 12:23){
+  credit <- credit[credit[,i] > 0, ]
+}
+
+#Log transformations:
+for (i in 12:23){
+  credit[,i] <- log(credit[,i])
+}
+
+#Scale tranformations:
+credit$LIMIT_BAL <- scale(credit$LIMIT_BAL)
+credit$AGE <- scale(credit$AGE)
+for (i in 12:23){
+  credit[,i] <- scale(credit[,i])
+}
+
+
+```
+
+Visualization  
+- Bivariate plots
+- Correlation map 
+- Principal Component Analysis
+
+For these techniques, I saw a remarkable difference in the correlation plots and segregation of observations belonging to defaulters and non-defaulters after removing the missing data (repayment status = -2 and 0) which I had referred to above.
+In addition to the transformations used hereinbefore, I also removed the observations with missing data from the original UCI dataset, only for the purposes of these visualization techniques. 
+For all the classification methods, I have used the transformed dataset credit.
+
+```{r}
+cred <- read.csv("Credit_Card_default.csv")
+cred <- cred[,-1]
+
+#Restrict repayment status to -1 and values strictly greater than 0
+for (i in 6:11){
+  cred <- cred[cred[,i] == -1 | cred[,i] > 0, ]
+}
+
+##Calculate Total Number of defaults for every observation
+cred <- cred %>% mutate(PAY_0 = ifelse(PAY_0 < 3, 0, 1))
+cred <- cred %>% mutate(PAY_2 = ifelse(PAY_2 < 3, 0, 1))
+cred <- cred %>% mutate(PAY_3 = ifelse(PAY_3 < 3, 0, 1))
+cred <- cred %>% mutate(PAY_4 = ifelse(PAY_4 < 3, 0, 1))
+cred <- cred %>% mutate(PAY_5 = ifelse(PAY_5 < 3, 0, 1))
+cred <- cred %>% mutate(PAY_6 = ifelse(PAY_6 < 3, 0, 1))
+for (i in 1:nrow(cred)){
+  cred$Number_of_defaults[i] <- (cred$PAY_0[i] + cred$PAY_2[i] + cred$PAY_3[i] + cred$PAY_4[i] + cred$PAY_5[i] + cred$PAY_6[i])}
+
+#Restrict bill and payment amounts to positive values
+for (i in 12:23){
+  cred <- cred[cred[,i] > 0, ]
+}
+
+#Log transformations:
+for (i in 12:23){
+  cred[,i] <- log(cred[,i])
+}
+
+#Scale tranformations:
+cred$LIMIT_BAL <- scale(cred$LIMIT_BAL)
+cred$AGE <- scale(cred$AGE)
+for (i in 12:23){
+  cred[,i] <- scale(cred[,i])
+}
+
+#Bivariate plots for continuous variables
+pairs(cred[,c(12:17)])
+pairs(cred[,c(13:15,18:20)])
+
+##Correlation map
+corrgram(cred[,c(1,5,12:23)], order = TRUE, lower.panel = panel.shade,
+         upper.panel = panel.pie, text.panel = panel.txt)
+
+##PCA analysis
+cred.new <- cred
+cred.new$default.payment.next.month <- ifelse(cred.new$default.payment.next.month == 1, "defaulter", "non-defaulter")
+pca <- princomp(cred.new[ ,c(1,5,12:23)], cor = T)$scores
+pca1 <- princomp(cred.new[ ,c(1,5,12:23)], cor = T)
+eigs <- pca1$sdev^2
+E <- eigs/sum(eigs)
+E[[1]] + E[[2]]+ E[[3]] + E[[4]] + E[[5]]
+#Thus, the first five components account for 81.5% of the total variance
+ggplot(data = cred.new, aes(pca[,1], pca[,2], colour = default.payment.next.month))+geom_jitter()
+ggplot(data = cred.new, aes(pca[,2], pca[,3], colour = default.payment.next.month))+geom_jitter()
+
+
+pairs(pca[,1:5])
+```
+
+Bivariate plots: 
+From the bivariate plots, we can see strong linear correlation between the different bill amounts as well as between the bill amounts and amounts paid. For example: there is a strong linear correlation between BILL_AMT2 and PAY_AMT1
+
+Correlation Map:
+The correlation map, like the bivariate plots, shows a strong correlation between the different bill amounts as well as between the bill amounts and amounts paid. For example: there is a strong linear correlation between BILL_AMT2 and PAY_AMT1
+
+Principal Component Analysis:
+Using the continuous variables in the given dataset, I calculated the principal components and plotted the pairs of the first five components. The plots of first versus second component and second versus third component show two distinct clusters. 
+However, when I colored them using the default payment values, the larger cluster seems to have some defaulter observations. 
+Hence, though the observations are not completely separated according to their default payment status, with such an imbalanced dataset, I think PCA does well in forming the two clusters, one with majority observations belonging to default payment = 1 status and other with majority observations belonging to default payment = 0 status .
+
+
+
+Balancing the dataset and split into train and test datasets:
+The transformed dataset credit has only 14% observations for defaulters and is quite imbalanced. Hence, I used the random undersampling technique to balance the dataset for the defaulter and non-defaulter observations.
+Since, it is almost impossible to find a dataset which is exactly balanced for the binary response variable, instead of making the observations for defaulters and non-defaulters exactly equal, I kept 100 more observations for the non-defaulters than the defaulters.
+The dataset thus obtained is also called credit with 4312 observations, out of which 49% belong to the defaulters category.
+Henceforth, every reference to dataset or original/transformed dataset would imply a reference to this new balanced dataset - credit.
+
+Thereafter, I divided this dataset into two parts in the ratio of 80:20
+The new data with 80% of the observations is termed as train dataset whereas the remaining part of the dataset “credit” is termed as test dataset.
+The train dataset has 3449 observations, whereas the test dataset has 863 observations. Approximately 49% of the observations in the train dataset belong to the default payment = 1 category.
+I deleted the columns corresponding to repayment status from April 2005 to September 2005 and used my newly created variable -Number_of_defaults- for the purposes of classification.
+
+```{r}
+set.seed(2010)
+##Undersampling to create a balanced dataset
+pos.data <- credit[credit$default.payment.next.month == 1,]
+new.data <- credit[credit$default.payment.next.month == 0,]
+balAmt <- nrow(pos.data) + 100
+sample.credit <- sample.int(nrow(new.data), balAmt, replace = FALSE)
+sampled.set <- new.data[sample.credit, ]
+credit <- rbind(sampled.set,pos.data)
+percentDefault <- sum(credit$default.payment.next.month)/nrow(credit)
+percentDefault
+
+##Create train and test datasets
+n.total.new <- nrow(credit)
+n.train.new <- floor(0.80 * nrow(credit))
+training.idxs.new <- sample.int(n.total.new, n.train.new, replace=FALSE)
+train <- credit[training.idxs.new, ]
+test <- credit[-training.idxs.new, ]
+train <- train[, -(6:11)]
+test <- test[, -(6:11)]
+
+percentDefaultTrain <- sum(train$default.payment.next.month)/nrow(train)
+percentDefaultTrain
+percentDefaultTest <- sum(test$default.payment.next.month)/nrow(test)
+percentDefaultTest
+
+```
+
+
+Logistic Regression:
+
+```{r}
+##Logistic regression
+fit.logit <- glm(default.payment.next.month ~. , data = train, family = "binomial")
+prediction <- predict(fit.logit, newdata = test, type = "response")
+
+test$Prediction.log <- ifelse(prediction > 0.5, 1, 0)
+
+sum(test$default.payment.next.month == test$Prediction.log)/nrow(test)
+
+confusionMatrix(as.factor(test$Prediction.log),as.factor(test$default.payment.next.month))
+
+rocCurve <- roc(test$default.payment.next.month ~ test$Prediction.log)
+plot(rocCurve)
+coords(rocCurve, "best", ret = "threshold")
+```
+
+The accuracy in prediction achieved with this method was 
+```{r}
+sum(test$default.payment.next.month == test$Prediction.log)/nrow(test)
+```
+
+Support Vector Machines:
+Method: Build the model on train dataset and make predictions on the test dataset
+On the train dataset created previously, I used the svm( ) function from the library(e1071). 
+With this model, I made predictions about the default status of the observations in the test dataset.
+
+```{r}
+test <- test[,-20]
+credit.svm <- e1071::svm(default.payment.next.month ~ ., data = train)
+predictions.svm <- predict(credit.svm, test)
+
+#Attach predictions to the dataset - test
+test$Predictions.svm <-  predictions.svm
+test$Predictions.svm <- ifelse(test$Predictions.svm < 0.5, 0, 1)
+#Compute the accuracy
+accuracy.svm <- sum(test$default.payment.next.month == test$Predictions.svm)/nrow(test)
+accuracy.svm
+#Confusion Matrix
+confusionMatrix(as.factor(test$Predictions.svm),as.factor(test$default.payment.next.month))
+
+rocCurveSvm <- roc(test$default.payment.next.month ~ test$Predictions.svm)
+plot(rocCurveSvm)
+coords(rocCurveSvm, "best", ret = "threshold")
+```
+
+
+
+Artificial Neural Networks:
+(use CV for choosing tuning parameters)
+```{r}
+test <- test[,-20]
+trControl <- trainControl(method = "cv", number = 10, search = "grid") 
+test.nn <- capture.output(nn.credit.1 <- caret::train(as.factor(default.payment.next.month) ~. , data = train, method = "nnet", metric = "Accuracy", trControl = trControl, importance = TRUE))
+pred.nn.credit <- predict(nn.credit.1, test) 
+print(nn.credit.1)
+
+par(mar = numeric(4), family = "serif")
+plotnet(nn.credit.1$finalModel, cex_val = 0.5)
+
+print(cm.credit.1 <- confusionMatrix(pred.nn.credit, as.factor(test$default.payment.next.month)))
+
+```
+
+After observing the low sensitivity-specificity for all the three models above, I decided to fit these models on the dataset where I had removed the missing data.
+Firstly, I used the same code to balance my dataset cred (original dataset minus missing data) and then fit logistic regression, linear SVM and Artificial Neural Network on that balanced dataset.
+
+```{r}
+set.seed(2010)
+##Undersampling to create a balanced dataset
+pos.data <- cred[cred$default.payment.next.month == 1,]
+new.data <- cred[cred$default.payment.next.month == 0,]
+balAmt <- nrow(pos.data) + 100
+sample.credit <- sample.int(nrow(new.data), balAmt, replace = FALSE)
+sampled.set <- new.data[sample.credit, ]
+cred <- rbind(sampled.set,pos.data)
+percentDefault <- sum(cred$default.payment.next.month)/nrow(cred)
+percentDefault
+
+##Create train and test datasets
+n.total.new <- nrow(cred)
+n.train.new <- floor(0.80 * nrow(cred))
+training.idxs.new <- sample.int(n.total.new, n.train.new, replace=FALSE)
+train <- cred[training.idxs.new, ]
+test <- cred[-training.idxs.new, ]
+train <- train[, -(6:11)]
+test <- test[, -(6:11)]
+
+percentDefaultTrain <- sum(train$default.payment.next.month)/nrow(train)
+percentDefaultTrain
+percentDefaultTest <- sum(test$default.payment.next.month)/nrow(test)
+percentDefaultTest
+
+
+##Logistic regression
+fit.logit <- glm(default.payment.next.month ~. , data = train, family = "binomial")
+prediction <- predict(fit.logit, newdata = test, type = "response")
+
+test$Prediction.log <- ifelse(prediction > 0.5, 1, 0)
+
+sum(test$default.payment.next.month == test$Prediction.log)/nrow(test)
+
+confusionMatrix(as.factor(test$Prediction.log),as.factor(test$default.payment.next.month))
+
+rocCurve <- roc(test$default.payment.next.month ~ test$Prediction.log)
+plot(rocCurve)
+coords(rocCurve, "best", ret = "threshold")
+
+#SVM
+test <- test[,-20]
+credit.svm <- e1071::svm(default.payment.next.month ~ ., data = train)
+predictions.svm <- predict(credit.svm, test)
+
+#Attach predictions to the dataset - test
+test$Predictions.svm <-  predictions.svm
+test$Predictions.svm <- ifelse(test$Predictions.svm < 0.5, 0, 1)
+#Compute the accuracy
+accuracy.svm <- sum(test$default.payment.next.month == test$Predictions.svm)/nrow(test)
+accuracy.svm
+#Confusion Matrix
+confusionMatrix(as.factor(test$Predictions.svm),as.factor(test$default.payment.next.month))
+
+rocCurveSvm <- roc(test$default.payment.next.month ~ test$Predictions.svm)
+plot(rocCurveSvm)
+coords(rocCurveSvm, "best", ret = "threshold")
+
+
+#ANN
+test <- test[,-20]
+trControl <- trainControl(method = "cv", number = 10, search = "grid") 
+test.nn <- capture.output(nn.credit.1 <- caret::train(as.factor(default.payment.next.month) ~. , data = train, method = "nnet", metric = "Accuracy", trControl = trControl, importance = TRUE))
+pred.nn.credit <- predict(nn.credit.1, test) 
+print(nn.credit.1)
+
+par(mar = numeric(4), family = "serif")
+plotnet(nn.credit.1$finalModel, cex_val = 0.5)
+
+print(cm.credit.1 <- confusionMatrix(pred.nn.credit, as.factor(test$default.payment.next.month)))
+```
+
+Choice of classification methods and rationale:
+Logistic regression is used as a classification method to model binary outcome variables. Since, the outcome variable in this case - default payment- is also a binary variable, I decided to use logistic regression for the purpose of classification.
+
+Support Vector Machine: (SVM)
+Support Vector Machine algorithm is used to find the hyperplane with the maximum margin that distinctly classifies the observations in the data. This method has some advantages over logistic regression i.e it is less sensitive to outliers than logistic regression and it calculates the absolute predictions instead of probabilistic predictions given by logistic regression. Thus, in SVM, we are not required to decide a threshold to obtain the absolute probabilities.
+
+
+Artificial Neural Network: (NNet)
+According to L.M. Salchenberger, E.M. Cinar, N.A. Lash1 , neural network is better when multicollinearity exists and a non-linear relationship is found between the explanatory and response variables. Since, from the visualization maps, I found strong correlations between some of the explanatory variables, I decided to try using one of the most widely used machine learning method - Artificial Neural Network.
+
+
+Substantive conclusion:
+In financial fraud/default cases, ideally we would prefer maximizing the true positive and true negative outcomes. In addition to this, to avoid substantial monetary losses, we need to be more skeptical of the false positive outcomes (predicting default for a non defaulter) than a false negative (predicting non-default for a defaulter).
+False positives imply loss of money due to fraudulent transactions and false negatives imply loss of revenue due to turning away legitimate customers. Accuracy implies the correct predictions of defaulters and non-defaulters.
+In my analysis, the Artificial Neural network model had the highest accuracy with approximately 61%
+Logistic regression performs well too with an accuracy of approximately 60% followed by SVM (linear and radial) with an accuracy of approximately 59%
+Further research:
+I would like to explore the methods of features selection and check if that improves the accuracy of these models.
+
+
+
+1(Neural networks: a new tool for predicting thrift failures, Decision Sciences 23 (1992) 899– 915)
